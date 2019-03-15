@@ -97,18 +97,19 @@
                 tools:ignore="HardcodedText" />
 
             <Button
+                android:id="@+id/xyz"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:onClick="XYZ0"
-                android:text="XYZ SIFIR" />
+                android:text="stop" />
 
             <Button
                 android:id="@+id/stop_location"
                 android:layout_width="124dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Stop Location!"
+                android:text="Converting"
                 tools:ignore="HardcodedText" />
         </LinearLayout>
     </LinearLayout>

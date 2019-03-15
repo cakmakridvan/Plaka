@@ -12,11 +12,17 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.media.AudioManager;
+import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
+import android.media.MediaFormat;
+import android.media.MediaRecorder;
 import android.media.ToneGenerator;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Message;
 import android.os.Vibrator;
 import android.support.annotation.NonNull;
 import android.support.annotation.RequiresApi;
@@ -29,38 +35,84 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.aeyacin.cemaradevicetrack.db.model.DataModel;
 import com.aeyacin.cemaradevicetrack.sockets.TcpClient;
+import com.aeyacin.cemaradevicetrack.utils.DateTime;
+import com.aeyacin.cemaradevicetrack.utils.converters.NV21toYuv420;
+import com.github.hiteshsondhi88.libffmpeg.ExecuteBinaryResponseHandler;
+import com.github.hiteshsondhi88.libffmpeg.FFmpeg;
+import com.github.hiteshsondhi88.libffmpeg.FFmpegLoadBinaryResponseHandler;
+import com.github.hiteshsondhi88.libffmpeg.exceptions.FFmpegCommandAlreadyRunningException;
+import com.github.hiteshsondhi88.libffmpeg.exceptions.FFmpegNotSupportedException;
 import com.google.android.gms.location.DetectedActivity;
 import com.google.android.gms.location.Geofence;
 
+import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import fr.quentinklein.slt.LocationTracker;
+import ime.extsdk.ImePreviewDataManager;
+import ime.extsdk.ImePreviewDataManager.PreviewSize;
+import ime.extsdk.ImeTTS;
+import ime.extsdk.ipc.CameraProxy;
+import ime.extsdk.ipc.CameraProxy.CameraDataCallBack;
 import io.nlopez.smartlocation.OnReverseGeocodingListener;
 import io.nlopez.smartlocation.SmartLocation;
 import io.realm.Realm;
 import io.realm.RealmResults;
+import it.sauronsoftware.ftp4j.FTPClient;
+import it.sauronsoftware.ftp4j.FTPDataTransferListener;
 
-import android.widget.Toast;
-
-import org.greenrobot.eventbus.EventBus;
-import org.greenrobot.eventbus.Subscribe;
-import org.greenrobot.eventbus.ThreadMode;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener, LocationListener
     /*    OnLocationUpdatedListener, OnActivityUpdatedListener,
         OnGeofencingTransitionListener, LocationBasedOnActivityProvider.LocationBasedOnActivityListener */ {
+
+    //FTP Connection
+    public static final String FTP_HOST = "178.18.200.115";
+    public static final String FTP_USER = "administrator";
+    public static final String FTP_PASS = "Uj~Hp9dXgbX?";
+    private FTPClient client;
+
+    //Files
+    private File mVideoFile,rota_file,video,ses,mp4,last_mp4,ftp_dosya,audio_file,photo,ses_deneme,dest_file,dest_file2,dest_file3;
+    private static final String TAG = "ImeSdk";
+    FileOutputStream fos = null;
+
+    String h264_path,h264_new,path2,pathdeneme,outputFile,output_new,last_output;
+
+    //imei init
+    private ImePreviewDataManager mImePreviewDataManager;
+    private static final int RESTART_PREVIEW_SUCCESS = 0x01;
+    private static final int RESTOP_PREVIEW_SUCCESS = 0x02;
+    ImePreviewDataManager.PreviewSize realPreviewSize;
+
+    MediaRecorder recorder;
+    boolean isAudioRecording;
+
+    //Media Codec
+    MediaCodec mMediaCodec,audioCodec;
+    private BufferedOutputStream outputStream;
+    private String audioType = "audio/mp4a-latm";
+    int i = 0;
+
+    //FFmepeg init
+    FFmpeg ffmpeg;
+    String[] cmd;
+    String[] complexCommand;
+    String[] cmd3;
 
     private SensorManager sensorManager;
     private Vibrator vibrator;
@@ -108,11 +160,41 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     String get_mesaj= "";
 
+    private Handler mHandler = new Handler() {
+
+        public void handleMessage(Message msg) {
+
+            switch (msg.what) {
+
+                case RESTART_PREVIEW_SUCCESS:
+/*                    try {
+                        startPreview();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }*/
+                    break;
+                case RESTOP_PREVIEW_SUCCESS:
+//                    stopPreview();
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+    };
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        client = new FTPClient();
+
+        initFiles();
+        mImePreviewDataManager = ImePreviewDataManager.getImePreviewDataManager(this);
+        initVideoCodec();
 
         //Client = new UDP_Client();
         realm = Realm.getDefaultInstance();
@@ -125,6 +207,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
+        Button xyzLocation = findViewById(R.id.xyz);
+        xyzLocation.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+
+                stopPreview();
+            }
+        });
+
 
         // Bind event clicks
         Button startLocation = findViewById(R.id.start_location);
@@ -132,18 +223,53 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             @Override
             public void onClick(View view) {
                 // Location permission not granted
-                if (GetPermission()) {
-                    startLocation();
+//                if (GetPermission()) {
+                    //startLocation();
+
+                    try {
+                        startPreview();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
 
                 }
-            }
+//            }
         });
 
         Button stopLocation = findViewById(R.id.stop_location);
         stopLocation.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                stopLocation();
+                //stopLocation();
+
+                // Join Video and audio
+                String[] cmd2 = {"-i",path2,"-ss","2","-to","10","-c","copy",pathdeneme};
+                cmd = new String[]{"-i", h264_path, "-i", path2, "-c", "copy", "-map", "0:v:0", "-map", "1:a:0", outputFile};
+                cmd3 = new String[]{"-i", h264_path, "-filter:v", "setpts=1.25*PTS", h264_new};
+                //String[]cmd = {"-i", h264_path, "-i", path2, "-preset", "ultrafast", "-filter_complex", "[1:v]scale="+1280*0.21+":"+720*0.35+" [ovrl],[0:v][ovrl] overlay=x=(main_w-overlay_w):y=(main_h-overlay_h)", outputFile};
+                complexCommand = new String[]{"-i", outputFile, "-filter_complex", "[0:v]setpts=1.10*PTS[v];[0:a]atempo=1.00[a]", "-map", "[v]", "-map", "[a]", "-b:v", "1097k", "-r", "10", "-vcodec", "mpeg4", output_new};
+                String[] convert_mp4 = {"-i",h264_path,"-c","copy",output_new};
+
+                try {
+                    //FFMPEG initialize
+                    ffmeg();
+
+                } catch (FFmpegNotSupportedException e) {
+                    e.printStackTrace();
+                }
+
+                //Do something after 100ms
+
+                try {
+                    //FFMPEG execute command
+                    executeCommand(cmd);
+
+                } catch (FFmpegCommandAlreadyRunningException e) {
+                    e.printStackTrace();
+                }
+
+
+
             }
         });
 
@@ -157,6 +283,506 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
         startLocation();
+
+    }
+
+    public void ffmeg() throws FFmpegNotSupportedException {
+
+        ffmpeg = FFmpeg.getInstance(getApplicationContext());
+        ffmpeg.loadBinary(new FFmpegLoadBinaryResponseHandler() {
+            @Override
+            public void onFailure() {
+                Log.i("Failed","Failed FFmeg");
+            }
+
+            @Override
+            public void onSuccess() {
+                Log.i("Success","Success FFmeg");
+            }
+
+            @Override
+            public void onStart() {
+
+            }
+
+            @Override
+            public void onFinish() {
+
+            }
+        });
+    }
+
+    public void executeCommand(final String [] command) throws FFmpegCommandAlreadyRunningException {
+        try {
+            ffmpeg.execute(command, new ExecuteBinaryResponseHandler() {
+
+                @Override
+                public void onFailure(String message) {
+                    super.onFailure(message);
+                    Log.i("Failure", "" + message);
+                }
+
+                @Override
+                public void onFinish() {
+                    super.onFinish();
+
+                    try {
+                        executeCommand_final(complexCommand);
+                    } catch (FFmpegCommandAlreadyRunningException e) {
+                        e.printStackTrace();
+                    }
+
+                    //mux(output_new, path2, last_output);
+                }
+
+                @Override
+                public void onProgress(String message) {
+                    super.onProgress(message);
+                }
+
+                @Override
+                public void onStart() {
+                    super.onStart();
+                }
+
+                @Override
+                public void onSuccess(String message) {
+                    super.onSuccess(message);
+                    Log.i("Success", "" + message);
+                }
+            });
+        }catch (FFmpegCommandAlreadyRunningException e) {
+            // Handle if FFmpeg is already running
+            e.printStackTrace();
+        }
+
+    }
+
+    public void executeCommand_final(final String [] command) throws FFmpegCommandAlreadyRunningException {
+        try {
+            ffmpeg.execute(command, new ExecuteBinaryResponseHandler() {
+
+                @Override
+                public void onFailure(String message) {
+                    super.onFailure(message);
+                    Log.i("Failure", "" + message);
+                }
+
+                @Override
+                public void onFinish() {
+                    super.onFinish();
+
+                    //Uploading Video to FTP
+                    new FtpTask().execute();
+
+
+
+                }
+
+                @Override
+                public void onProgress(String message) {
+                    super.onProgress(message);
+                }
+
+                @Override
+                public void onStart() {
+                    super.onStart();
+                }
+
+                @Override
+                public void onSuccess(String message) {
+                    super.onSuccess(message);
+                    Log.i("Success", "" + message);
+                }
+            });
+        }catch (FFmpegCommandAlreadyRunningException e) {
+            // Handle if FFmpeg is already running
+            e.printStackTrace();
+        }
+
+    }
+
+    private class FtpTask extends AsyncTask<String, Void, String> {
+        protected String doInBackground(String... args) {
+
+
+
+            try {
+                client.connect(FTP_HOST,21);
+                client.login(FTP_USER,FTP_PASS);
+                client.setType(FTPClient.TYPE_BINARY);
+                client.changeDirectory("/upload/");
+                client.upload(dest_file2,new MyTransferListener());
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                try {
+                    client.disconnect(true);
+                }catch (Exception e2){
+                    e2.printStackTrace();
+                }
+            }
+
+            return null;
+        }
+
+        protected void onPostExecute(String result) {
+
+            //Where ftpClient is a instance variable in the main activity
+        }
+    }
+
+    /*******  Used to file upload and show progress  **********/
+
+    public class MyTransferListener implements FTPDataTransferListener {
+
+        public void started() {
+            // Transfer started
+
+            //Toast.makeText(getBaseContext(), " Upload Started ...", Toast.LENGTH_SHORT).show();
+            //System.out.println(" Upload Started ...");
+        }
+
+        public void transferred(int length) {
+            // Yet other length bytes has been transferred since the last time this
+            // method was called
+            //Toast.makeText(getBaseContext(), " transferred ..." + length, Toast.LENGTH_SHORT).show();
+            //System.out.println(" transferred ..." + length);
+        }
+
+        public void completed() {
+            // Transfer completed
+            //Toast.makeText(getBaseContext(), " completed ...", Toast.LENGTH_SHORT).show();
+            //System.out.println(" completed ..." );
+
+            finish();
+            startActivity(getIntent());
+        }
+
+        public void aborted() {
+            // Transfer aborted
+            //Toast.makeText(getBaseContext()," transfer aborted , please try again...", Toast.LENGTH_SHORT).show();
+            //System.out.println(" aborted ..." );
+        }
+
+        public void failed() {
+            // Transfer failed
+            System.out.println(" failed ..." );
+        }
+
+    }
+
+
+    private void initVideoCodec() {
+
+        MediaFormat mediaFormat = MediaFormat.createVideoFormat("video/avc",
+                1280,
+                720);
+        mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT,
+                MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar);
+        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 6000000);
+        mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 180); //video second
+
+        /*        mDestData = new byte[1280 * 720
+         * ImageFormat.getBitsPerPixel(ImageFormat.YV12) / 8];*/
+
+        mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 5);//5
+        try {
+            mMediaCodec = MediaCodec.createEncoderByType("video/avc");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        mMediaCodec.configure(mediaFormat,
+                null,
+                null,
+                MediaCodec.CONFIGURE_FLAG_ENCODE);
+        mMediaCodec.start();
+
+
+
+        //Audio Encoder
+        audio_file = new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/", "audio_encoded.mp4");
+        try {
+            outputStream = new BufferedOutputStream(new FileOutputStream(audio_file));
+            Log.e("AudioEncoder", "outputStream initialized");
+        } catch (Exception e){
+            e.printStackTrace();
+        }
+
+        try {
+            audioCodec = MediaCodec.createEncoderByType(audioType);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        final int kSampleRates[] = { 8000, 11025, 22050, 44100, 48000 };
+        final int kBitRates[] = { 64000, 128000 };
+        MediaFormat audioFormat  = MediaFormat.createAudioFormat(audioType,kSampleRates[3],2);
+        audioFormat.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
+        audioFormat.setInteger(MediaFormat.KEY_BIT_RATE, kBitRates[1]);
+        audioCodec.configure(audioFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+        audioCodec.start();
+    }
+
+
+
+
+
+
+
+    private void initFiles() {
+
+        rota_file = new File("/mnt/sdcard2/rota");
+        video = new File("/mnt/sdcard2/rota/video");
+        ses = new File("/mnt/sdcard2/rota/ses");
+        mp4 = new File("/mnt/sdcard2/rota/mp4");
+        last_mp4 = new File("/mnt/sdcard2/rota/last_mp4");
+        ftp_dosya = new File("/mnt/sdcard2/rota/ses/07032019_134058.aac");
+
+        if(!rota_file.exists()) {
+            rota_file.mkdir();
+        }
+        if(!video.exists()) {
+            video.mkdir();
+        }
+        if(!ses.exists()) {
+            ses.mkdir();
+        }
+        if(!mp4.exists()) {
+            mp4.mkdir();
+        }
+        if(!last_mp4.exists()) {
+            last_mp4.mkdir();
+        }
+    }
+
+    private CameraProxy.CameraDataCallBack callBack = new CameraProxy.CameraDataCallBack() {
+
+        @Override
+        public void onDataBack(byte[] data, long length) {
+            // TODO Auto-generated method stub
+            Log.i(TAG, "length . " + length);
+
+            photo = new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/", "photo" + i + ".jpg");
+            byte[] outpt = new byte[data.length];
+            //output = new byte[data.length];
+
+
+            byte[] datam = NV21toYuv420.NV21toYUV420Planar(data, outpt, 1280, 720);
+
+            encode(datam);
+        }
+    };
+
+    //Video format H264
+    private synchronized void encode(byte[] data) {
+
+        ByteBuffer[]  inputBuffers = mMediaCodec.getInputBuffers();
+        ByteBuffer[]  outputBuffers = mMediaCodec.getOutputBuffers();
+
+        int inputBufferIndex = mMediaCodec.dequeueInputBuffer(-1);
+        if (inputBufferIndex >= 0) {
+            ByteBuffer inputBuffer = inputBuffers[inputBufferIndex];
+            inputBuffer.capacity();
+            inputBuffer.clear();
+            inputBuffer.put(data);
+            mMediaCodec.queueInputBuffer(inputBufferIndex, 0, data.length, 1000000, 0);
+
+        } else {
+            return;
+        }
+
+        MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
+        int outputBufferIndex = mMediaCodec.dequeueOutputBuffer(bufferInfo, 0);
+        Log.i(TAG, "outputBufferIndex-->" + outputBufferIndex);
+        do {
+            if (outputBufferIndex >= 0) {
+                ByteBuffer outBuffer = outputBuffers[outputBufferIndex];
+                System.out.println("buffer info-->" + bufferInfo.offset + "--"
+                        + bufferInfo.size + "--" + bufferInfo.flags + "--"
+                        + bufferInfo.presentationTimeUs);
+                byte[] outData = new byte[bufferInfo.size];
+                outBuffer.get(outData);
+                //new ClientAsycTask().execute(outData);
+                try {
+                    if (bufferInfo.offset != 0) {
+                        fos.write(outData, bufferInfo.offset, outData.length
+                                - bufferInfo.offset);
+
+
+                    } else {
+                        fos.write(outData, 0, outData.length);
+                        //new ClientAsycTask().execute(data);
+                    }
+                    fos.flush();
+                    Log.i(TAG, "out data -- > " + outData.length);
+                    mMediaCodec.releaseOutputBuffer(outputBufferIndex, false);
+                    outputBufferIndex = mMediaCodec.dequeueOutputBuffer(bufferInfo,
+                            0);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+                outputBuffers = mMediaCodec.getOutputBuffers();
+            } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                MediaFormat format = mMediaCodec.getOutputFormat();
+            }
+        } while (outputBufferIndex >= 0);
+    }
+
+    private void files() {
+
+        //getting Current Date and Time
+        String currentDateandTime = DateTime.getDate();
+
+        mVideoFile = new File("/mnt/sdcard2/rota/video", currentDateandTime + ".264");
+        h264_path = "/mnt/sdcard2/rota/video/" + currentDateandTime + ".264";
+        h264_new = "/storage/sdcard0/newvideo.264";
+
+        try {
+            fos = null;
+            fos = new FileOutputStream(mVideoFile);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+
+        //ses = new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/", "ses.aac"); for saving internal storage
+        //path2 = "/storage/sdcard0/ses.aac"; for saving internal storage
+        ses = new File("/mnt/sdcard2/rota/ses", currentDateandTime + ".aac"); //for saving external storage(sd card)
+        path2 = "/mnt/sdcard2/rota/ses/" + currentDateandTime + ".aac"; //for saving external storage(sd card)
+
+        ses_deneme = new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/", "ses_deneme.aac");
+        pathdeneme = "/storage/sdcard0/sesdeneme.aac";
+
+        dest_file = new File("/mnt/sdcard2/rota/mp4", currentDateandTime + ".mp4");
+        dest_file2 = new File("/mnt/sdcard2/rota/last_mp4", currentDateandTime + ".mp4");
+        dest_file3 = new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/", "fener2.mp4");
+        outputFile = "/mnt/sdcard2/rota/mp4/" + currentDateandTime + ".mp4";
+        output_new = "/mnt/sdcard2/rota/last_mp4/" + currentDateandTime + ".mp4";
+        last_output = "/storage/sdcard0/fener2.mp4";
+    }
+
+    private void startPreview() throws IOException {
+
+
+        files();
+
+        mHandler.removeMessages(RESTART_PREVIEW_SUCCESS);
+
+        //判断预览数据管理器是否初始化化完成
+        if(mImePreviewDataManager.checkPreviewDataManagerInitSuccess()) {
+
+            //设置摄像头ID
+            mImePreviewDataManager.initCamId(ImePreviewDataManager.MAIN_CAM_ID);
+
+            //设置预览尺寸
+            mImePreviewDataManager.setPreviewSize(new ImePreviewDataManager.PreviewSize(1280, 720));
+
+            //获取实际预览尺寸，预览尺寸有可能设置失败
+            realPreviewSize = mImePreviewDataManager.getPreviewSize();
+
+
+            Log.i(TAG, "realPreviewSize : " + realPreviewSize.getWidth() + ", " + realPreviewSize.getHeight());
+
+            //设置数据回调接口
+            mImePreviewDataManager.setPreviewDataCallback(callBack);
+
+            //开始预览，在预览之后就会有相应的数据通过callBack回调出来
+            mImePreviewDataManager.startPreview();
+
+            Log.i(TAG, "startPreview success");
+
+            //stateTv.setText("startPreview success");
+
+            try {
+                audio_recorder_init();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+
+
+
+        } else {
+            mHandler.sendEmptyMessageDelayed(RESTART_PREVIEW_SUCCESS, 2 * 1000);
+            Log.i(TAG, "wait startPreview success...");
+            //stateTv.setText("wait startPreview success...");
+        }
+        //Do something after 100ms
+
+/*
+                if(recorder != null) {
+
+                    recorder.stop();
+                    recorder.reset();
+                    recorder.release();
+                    recorder = null;
+                    isAudioRecording = false;
+                }
+
+                  if(socket.isConnected()) {
+                      try {
+                          socket.close();
+                      } catch (IOException e) {
+                          e.printStackTrace();
+                      }
+                  }
+*/
+
+
+
+
+    }
+
+    private void stopPreview() {
+
+        mHandler.removeMessages(RESTOP_PREVIEW_SUCCESS);
+
+        //判断预览数据管理器是否初始化化完成
+        if(mImePreviewDataManager.checkPreviewDataManagerInitSuccess()) {
+
+            //停止预览
+            mImePreviewDataManager.stopPreview();
+
+            Log.i(TAG, "stopPreview success");
+            //stateTv.setText("stopPreview success");
+
+            if(recorder != null) {
+
+                recorder.stop();
+                recorder.reset();
+                recorder.release();
+                recorder = null;
+                isAudioRecording = false;
+            }
+
+
+        } else {
+            mHandler.sendEmptyMessageDelayed(RESTOP_PREVIEW_SUCCESS, 2 * 1000);
+            Log.i(TAG, "wait stopPreview success...");
+            //stateTv.setText("wait stopPreview success...");
+        }
+    }
+
+    private void audio_recorder_init() throws IOException {
+
+        //Audio Recorder initialize
+        recorder = new MediaRecorder();
+        recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+        recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4); //for mp3= TREE_GPP last_edit = MPEG_4
+        recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);    //for mp3= AMR_NB   last_edit = AAC
+        //recorder.setAudioEncodingBitRate(48000);//48000
+        //recorder.setAudioSamplingRate(16000);//16000
+
+        recorder.setOutputFile(path2);
+        //recorder.setOutputFile(parcelWrite.getFileDescriptor());
+
+        try {
+            recorder.prepare();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        recorder.start();
+
 
     }
 
@@ -229,7 +855,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             String get_y = String.valueOf(y-last_y);
             String get_z = String.valueOf(z-last_z);
 
-            new ConnectTask().execute("");
+            //new ConnectTask().execute("");
 /*
             try {
                 new ConnectTask().execute("").get(1000,TimeUnit.MILLISECONDS);
