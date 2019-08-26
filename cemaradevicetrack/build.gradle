@@ -50,6 +50,7 @@ dependencies {
     implementation 'com.github.quentin7b:android-location-tracker:3.2'
 
     implementation 'org.greenrobot:eventbus:3.0.0'
+    implementation 'com.google.code.ksoap2-android:ksoap2-android:3.6.1'
 
     implementation files('C:/Users/RotaMobile/Desktop/Plaka/libs/ImeSdk.jar')
     implementation files('C:/Users/RotaMobile/Desktop/Plaka/libs/ftp4j-1.7.2.jar')

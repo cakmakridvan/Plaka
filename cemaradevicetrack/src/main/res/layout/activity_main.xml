@@ -97,7 +97,6 @@
                 tools:ignore="HardcodedText" />
 
             <Button
-                android:id="@+id/xyz"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"

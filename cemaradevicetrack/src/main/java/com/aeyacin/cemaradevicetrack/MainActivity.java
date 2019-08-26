@@ -2,6 +2,7 @@ package com.aeyacin.cemaradevicetrack;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -30,6 +31,7 @@ import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
+import android.text.format.Time;
 import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
@@ -58,7 +60,10 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 
@@ -160,6 +165,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     String get_mesaj= "";
 
+    SimpleDateFormat format;
+    private Date date_last,date_first;
+    String getFirstTime = "";
+    private int count = 0;
+    ToneGenerator toneG;
+    private Handler handler_start;
+
     private Handler mHandler = new Handler() {
 
         public void handleMessage(Message msg) {
@@ -207,72 +219,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        Button xyzLocation = findViewById(R.id.xyz);
-        xyzLocation.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
 
-                stopPreview();
-            }
-        });
+        format = new SimpleDateFormat("hh:mm:ss aa");
+        date_first = Calendar.getInstance().getTime();
+        getFirstTime = format.format(date_first);
 
+        handler_start = new Handler();
 
-        // Bind event clicks
-        Button startLocation = findViewById(R.id.start_location);
-        startLocation.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                // Location permission not granted
-//                if (GetPermission()) {
-                    //startLocation();
-
-                    try {
-                        startPreview();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-
-                }
-//            }
-        });
-
-        Button stopLocation = findViewById(R.id.stop_location);
-        stopLocation.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                //stopLocation();
-
-                // Join Video and audio
-                String[] cmd2 = {"-i",path2,"-ss","2","-to","10","-c","copy",pathdeneme};
-                cmd = new String[]{"-i", h264_path, "-i", path2, "-c", "copy", "-map", "0:v:0", "-map", "1:a:0", outputFile};
-                cmd3 = new String[]{"-i", h264_path, "-filter:v", "setpts=1.25*PTS", h264_new};
-                //String[]cmd = {"-i", h264_path, "-i", path2, "-preset", "ultrafast", "-filter_complex", "[1:v]scale="+1280*0.21+":"+720*0.35+" [ovrl],[0:v][ovrl] overlay=x=(main_w-overlay_w):y=(main_h-overlay_h)", outputFile};
-                complexCommand = new String[]{"-i", outputFile, "-filter_complex", "[0:v]setpts=1.10*PTS[v];[0:a]atempo=1.00[a]", "-map", "[v]", "-map", "[a]", "-b:v", "1097k", "-r", "10", "-vcodec", "mpeg4", output_new};
-                String[] convert_mp4 = {"-i",h264_path,"-c","copy",output_new};
-
-                try {
-                    //FFMPEG initialize
-                    ffmeg();
-
-                } catch (FFmpegNotSupportedException e) {
-                    e.printStackTrace();
-                }
-
-                //Do something after 100ms
-
-                try {
-                    //FFMPEG execute command
-                    executeCommand(cmd);
-
-                } catch (FFmpegCommandAlreadyRunningException e) {
-                    e.printStackTrace();
-                }
-
-
-
-            }
-        });
-
+        toneG = new ToneGenerator(AudioManager.STREAM_ALARM, 100);
 
         locationText = findViewById(R.id.location_text);
         activityText = findViewById(R.id.activity_text);
@@ -283,6 +237,20 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
         startLocation();
+
+        OrtamalaListe = new ArrayList<>();
+        last_x = 0;
+        last_y = 0;
+        last_z = 0;
+        isstart = true;
+        try {
+            Thread.sleep(2000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        first_x = last_x;
+        first_y = last_y;
+        first_z = last_z;
 
     }
 
@@ -405,8 +373,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private class FtpTask extends AsyncTask<String, Void, String> {
         protected String doInBackground(String... args) {
 
-
-
             try {
                 client.connect(FTP_HOST,21);
                 client.login(FTP_USER,FTP_PASS);
@@ -429,6 +395,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         protected void onPostExecute(String result) {
 
             //Where ftpClient is a instance variable in the main activity
+            deleteCache(MainActivity.this);
         }
     }
 
@@ -455,8 +422,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             //Toast.makeText(getBaseContext(), " completed ...", Toast.LENGTH_SHORT).show();
             //System.out.println(" completed ..." );
 
-            finish();
-            startActivity(getIntent());
+/*            finish();
+            startActivity(getIntent());*/
         }
 
         public void aborted() {
@@ -522,12 +489,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         audioCodec.configure(audioFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
         audioCodec.start();
     }
-
-
-
-
-
-
 
     private void initFiles() {
 
@@ -663,7 +624,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private void startPreview() throws IOException {
 
-
         files();
 
         mHandler.removeMessages(RESTART_PREVIEW_SUCCESS);
@@ -685,9 +645,21 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
             //设置数据回调接口
             mImePreviewDataManager.setPreviewDataCallback(callBack);
-
             //开始预览，在预览之后就会有相应的数据通过callBack回调出来
             mImePreviewDataManager.startPreview();
+
+            handler_start.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    //Do something after 10 second
+                    //Stop Preview
+                    stopPreview();
+
+                    convertingVideo();
+
+                }
+            }, 10000);
+
 
             Log.i(TAG, "startPreview success");
 
@@ -699,37 +671,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 e.printStackTrace();
             }
 
-
-
-
         } else {
             mHandler.sendEmptyMessageDelayed(RESTART_PREVIEW_SUCCESS, 2 * 1000);
             Log.i(TAG, "wait startPreview success...");
             //stateTv.setText("wait startPreview success...");
         }
-        //Do something after 100ms
-
-/*
-                if(recorder != null) {
-
-                    recorder.stop();
-                    recorder.reset();
-                    recorder.release();
-                    recorder = null;
-                    isAudioRecording = false;
-                }
-
-                  if(socket.isConnected()) {
-                      try {
-                          socket.close();
-                      } catch (IOException e) {
-                          e.printStackTrace();
-                      }
-                  }
-*/
-
-
-
 
     }
 
@@ -875,7 +821,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         @Override
                         public void execute(Realm bgRealm) {
 
-                            //creating auto increment of primary key
+                         //creating auto increment of primary key
                             Number maxId = bgRealm.where(DataModel.class).max("id");
                             int nextId = (maxId == null) ? 1 : maxId.intValue() + 1;
                             DataModel model = bgRealm.createObject(DataModel.class, nextId);
@@ -991,17 +937,46 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             if (last_z != 0) {
                 if (Hesap0yz > 4) {
                     Alarm = 1;
-                    ToneGenerator toneG = new ToneGenerator(AudioManager.STREAM_ALARM, 100);
                     toneG.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 200);
                     activityText.setText(String.format("x : %.4f y : %.4f z : %.4f yz0 : %.4f xyz0 : %.4f yz : %.4f xyz : %.4f ", x - last_x, y - last_y, z - last_z, Hesap0yz, Hesap0,Hesapyz,Hesapxyz));
                     saveToFile(new Date() + String.format("x : %.4f y : %.4f z : %.4f x0 : %.4f y0 : %.4f z0 : %.4f  yz0 : %.4f xyz0 : %.4f  yz : %.4f xyz : %.4f Latitude: %.6f Longitude: %.6f Bearing: %.1f Speed: %.1f LAT_ACC: %.4f LIN_ACC: %.4f Alarm : %.1f", x  , y  , z  ,x - last_x, y - last_y, z - last_z, Hesap0yz, Hesap0,Hesapyz,Hesapxyz, GlobalLocation.getLatitude(), GlobalLocation.getLongitude(), GlobalLocation.getBearing(), GlobalLocation.getSpeed() * 3.6, bear * ort_speed, GlobalLocation.getSpeed() - son_speed, Alarm));
 
                 }else if((Math.abs(x-last_x)>4)){
                     Alarm = 2;
-                    ToneGenerator toneG = new ToneGenerator(AudioManager.STREAM_RING, 100);
                     toneG.startTone(ToneGenerator.TONE_CDMA_HIGH_PBX_SLS, 200);
                     activityText.setText(String.format("x : %.4f y : %.4f z : %.4f yz0 : %.4f xyz0 : %.4f yz : %.4f xyz : %.4f ", x - last_x, y - last_y, z - last_z, Hesap0yz, Hesap0,Hesapyz,Hesapxyz));
                     saveToFile(new Date() + String.format("x : %.4f y : %.4f z : %.4f x0 : %.4f y0 : %.4f z0 : %.4f  yz0 : %.4f xyz0 : %.4f  yz : %.4f xyz : %.4f Latitude: %.6f Longitude: %.6f Bearing: %.1f Speed: %.1f LAT_ACC: %.4f LIN_ACC: %.4f Alarm : %.1f", x  , y  , z  ,x - last_x, y - last_y, z - last_z, Hesap0yz, Hesap0,Hesapyz,Hesapxyz, GlobalLocation.getLatitude(), GlobalLocation.getLongitude(), GlobalLocation.getBearing(), GlobalLocation.getSpeed() * 3.6, bear * ort_speed, GlobalLocation.getSpeed() - son_speed, Alarm));
+
+                    //getting Current Date and Time
+                    date_last = Calendar.getInstance().getTime();
+                    String getLastTime = format.format(date_last);
+
+                    try {
+                        Date dateFirst = format.parse(getFirstTime);
+                        Date dateLast = format.parse(getLastTime);
+
+                        long millse = dateLast.getTime() - dateFirst.getTime();
+                        long mills = Math.abs(millse);
+                        double getSecond = mills / 1000;
+                        //long Secs = (int) (mills / 1000) % 60;
+                        Log.i("Min",""+getSecond);
+
+                        if(count == 0){
+                            startPreview();
+                            getFirstTime = getLastTime;
+                            count++;
+                        }else if(count != 0 && getSecond > 300){
+                            startPreview();
+                            getFirstTime = getLastTime;
+                            count++;
+                        }
+
+                    } catch (ParseException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+
 
                 }else{
                     saveToFile(new Date() + String.format("x : %.4f y : %.4f z : %.4f x0 : %.4f y0 : %.4f z0 : %.4f  yz0 : %.4f xyz0 : %.4f  yz : %.4f xyz : %.4f Latitude: %.6f Longitude: %.6f Bearing: %.1f Speed: %.1f LAT_ACC: %.4f LIN_ACC: %.4f Alarm : %.1f", x  , y  , z  ,x - last_x, y - last_y, z - last_z, Hesap0yz, Hesap0,Hesapyz,Hesapxyz, GlobalLocation.getLatitude(), GlobalLocation.getLongitude(), GlobalLocation.getBearing(), GlobalLocation.getSpeed() * 3.6, bear * ort_speed, GlobalLocation.getSpeed() - son_speed, Alarm));
@@ -1102,9 +1077,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     }
 
-
-
-
     public int BOLGE(Float ACI) {
         int B=0;
         if (GlobalLocation.getBearing()>269){
@@ -1156,29 +1128,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     boolean isstart = false;
     int counter = 0;
 
-
-    public void XYZ0(View AAA) {
-
-        OrtamalaListe = new ArrayList<>();
-        last_x = 0;
-        last_y = 0;
-        last_z = 0;
-        isstart = true;
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        first_x = last_x;
-        first_y = last_y;
-        first_z = last_z;
-        //activityText.setText(String.format("x : %f y : %f z : %f", first_x, first_y, first_z));
-    }
-
-    // public float[] AddIHLAL(float x, float y, float z) {
-
-
-//    }
 
     public float[] AddOrtalama(float x, float y, float z) {
 
@@ -1293,7 +1242,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
             locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1, 0, this);
 
-         
+
             /*
             tracker = new LocationTracker(getApplicationContext(), new TrackerSettings()
                     .setUseGPS(true)
@@ -1386,19 +1335,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     //location.getBearingAccuracyDegrees(),
                     location.getSpeed()*3.6
 
-
-
-
                     //location.getTime()
                     //location.getSpeedAccuracyMetersPerSecond()
             );
             locationText.setText(text);
-
-
-
-
-
-
 
         } else {
             locationText.setText("Null location");
@@ -1542,4 +1482,55 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
    }
+
+   public void convertingVideo(){
+       // Join Video and audio
+       String[] cmd2 = {"-i",path2,"-ss","2","-to","10","-c","copy",pathdeneme};
+       cmd = new String[]{"-i", h264_path, "-i", path2, "-c", "copy", "-map", "0:v:0", "-map", "1:a:0", outputFile};
+       cmd3 = new String[]{"-i", h264_path, "-filter:v", "setpts=1.25*PTS", h264_new};
+       //String[]cmd = {"-i", h264_path, "-i", path2, "-preset", "ultrafast", "-filter_complex", "[1:v]scale="+1280*0.21+":"+720*0.35+" [ovrl],[0:v][ovrl] overlay=x=(main_w-overlay_w):y=(main_h-overlay_h)", outputFile};
+       complexCommand = new String[]{"-i", outputFile, "-filter_complex", "[0:v]setpts=1.10*PTS[v];[0:a]atempo=1.00[a]", "-map", "[v]", "-map", "[a]", "-b:v", "1097k", "-r", "10", "-vcodec", "mpeg4", output_new};
+       String[] convert_mp4 = {"-i",h264_path,"-c","copy",output_new};
+
+       try {
+           //FFMPEG initialize
+           ffmeg();
+
+       } catch (FFmpegNotSupportedException e) {
+           e.printStackTrace();
+       }
+
+       //Do something after 100ms
+
+       try {
+           //FFMPEG execute command
+           executeCommand(cmd);
+
+       } catch (FFmpegCommandAlreadyRunningException e) {
+           e.printStackTrace();
+       }
+   }
+
+    public static void deleteCache(Context context) {
+        try {
+            File dir = context.getCacheDir();
+            if (dir != null && dir.isDirectory()) {
+                deleteDir(dir);
+            }
+        } catch (Exception e) {}
+    }
+
+    public static boolean deleteDir(File dir) {
+        if (dir != null && dir.isDirectory()) {
+            String[] children = dir.list();
+            for (int i = 0; i < children.length; i++) {
+                boolean success = deleteDir(new File(dir, children[i]));
+                if (!success) {
+                    return false;
+                }
+            }
+        }
+        return dir.delete();
+    }
+
 }
