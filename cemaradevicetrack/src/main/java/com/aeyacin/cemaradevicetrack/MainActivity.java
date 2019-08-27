@@ -202,7 +202,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        client = new FTPClient();
+
 
         initFiles();
         mImePreviewDataManager = ImePreviewDataManager.getImePreviewDataManager(this);
@@ -374,6 +374,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         protected String doInBackground(String... args) {
 
             try {
+                client = new FTPClient();
                 client.connect(FTP_HOST,21);
                 client.login(FTP_USER,FTP_PASS);
                 client.setType(FTPClient.TYPE_BINARY);
@@ -382,11 +383,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
             } catch (Exception e) {
                 e.printStackTrace();
-                try {
+/*                try {
                     client.disconnect(true);
                 }catch (Exception e2){
                     e2.printStackTrace();
-                }
+                }*/
             }
 
             return null;
@@ -396,6 +397,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
             //Where ftpClient is a instance variable in the main activity
             deleteCache(MainActivity.this);
+
+            mImePreviewDataManager = ImePreviewDataManager.getImePreviewDataManager(MainActivity.this);
+            initVideoCodec();
+            client = null;
+
         }
     }
 
