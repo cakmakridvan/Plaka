@@ -40,6 +40,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.aeyacin.cemaradevicetrack.db.model.DataModel;
+import com.aeyacin.cemaradevicetrack.server.WebService;
 import com.aeyacin.cemaradevicetrack.sockets.TcpClient;
 import com.aeyacin.cemaradevicetrack.utils.DateTime;
 import com.aeyacin.cemaradevicetrack.utils.converters.NV21toYuv420;
@@ -53,6 +54,8 @@ import com.google.android.gms.location.Geofence;
 
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -86,9 +89,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         OnGeofencingTransitionListener, LocationBasedOnActivityProvider.LocationBasedOnActivityListener */ {
 
     //FTP Connection
-    public static final String FTP_HOST = "178.18.200.115";
-    public static final String FTP_USER = "administrator";
-    public static final String FTP_PASS = "Uj~Hp9dXgbX?";
+    public static final String FTP_HOST = "178.18.200.116";
+    public static final String FTP_USER = "FTPRota";
+    public static final String FTP_PASS = "Rota2019*-";
     private FTPClient client;
 
     //Files
@@ -171,6 +174,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private int count = 0;
     ToneGenerator toneG;
     private Handler handler_start;
+    private boolean success_cameraShake;
+    private cameraShake cameraSendMessage = null;
+    private String currentDateandTime = "";
 
     private Handler mHandler = new Handler() {
 
@@ -201,8 +207,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-
 
         initFiles();
         mImePreviewDataManager = ImePreviewDataManager.getImePreviewDataManager(this);
@@ -343,8 +347,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     //Uploading Video to FTP
                     new FtpTask().execute();
 
-
-
                 }
 
                 @Override
@@ -375,7 +377,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
             try {
                 client = new FTPClient();
-                client.connect(FTP_HOST,21);
+                client.connect(FTP_HOST,2121);
                 client.login(FTP_USER,FTP_PASS);
                 client.setType(FTPClient.TYPE_BINARY);
                 client.changeDirectory("/upload/");
@@ -401,6 +403,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             mImePreviewDataManager = ImePreviewDataManager.getImePreviewDataManager(MainActivity.this);
             initVideoCodec();
             client = null;
+
+            cameraSendMessage = new cameraShake(currentDateandTime + ".mp4","2005");
+            cameraSendMessage.execute((Void) null);
 
         }
     }
@@ -599,7 +604,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void files() {
 
         //getting Current Date and Time
-        String currentDateandTime = DateTime.getDate();
+        currentDateandTime = DateTime.getDate();
 
         mVideoFile = new File("/mnt/sdcard2/rota/video", currentDateandTime + ".264");
         h264_path = "/mnt/sdcard2/rota/video/" + currentDateandTime + ".264";
@@ -971,7 +976,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                             startPreview();
                             getFirstTime = getLastTime;
                             count++;
-                        }else if(count != 0 && getSecond > 300){
+                        }else if(count != 0 && getSecond > 120){
                             startPreview();
                             getFirstTime = getLastTime;
                             count++;
@@ -1537,6 +1542,47 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
         }
         return dir.delete();
+    }
+
+    public class cameraShake extends AsyncTask<Object,Object,Boolean>{
+
+        private String path;
+        private String id;
+
+        cameraShake(String path,String id){
+
+            this.path = path;
+            this.id = id;
+
+        }
+
+        @Override
+        protected Boolean doInBackground(Object... objects) {
+
+            String get_result = WebService.CameraActive(path,id);
+            if(!get_result.trim().equalsIgnoreCase("false")){
+                try {
+                    JSONObject jsonObject = new JSONObject(get_result);
+                    success_cameraShake = jsonObject.getBoolean("Successsful");
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+            }else{
+                    success_cameraShake = false;
+            }
+            return false;
+        }
+
+        @Override
+        protected void onPostExecute(Boolean aBoolean) {
+            super.onPostExecute(aBoolean);
+        }
+
+        @Override
+        protected void onCancelled() {
+            super.onCancelled();
+            currentDateandTime = null;
+        }
     }
 
 }

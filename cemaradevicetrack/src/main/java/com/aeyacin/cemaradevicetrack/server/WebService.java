@@ -12,13 +12,13 @@ public class WebService {
     private static String URLRotaWebServis = "http://ats2.rota.net.tr/service/RotaService.asmx";
     private static final int WS_TIMEOUT = 10000;
 
-    public static String CameraActive(int ID, String Path) {
-        String METHOD_NAME = "CameraActiveSet";
-        String SOAP_ACTION = NAMESPACE + URLRotaWebServis;
+    public static String CameraActive(String Path, String ID) {
+        String METHOD_NAME = "CameraShake";
+        String SOAP_ACTION = NAMESPACE + METHOD_NAME;
         SoapObject request = new SoapObject(NAMESPACE, METHOD_NAME);
 
-        request.addProperty("ID", ID);
-        request.addProperty("PathName", Path);
+        request.addProperty("PathName", "http://178.18.200.116:88/" + Path);
+        request.addProperty("DeviceImei", ID);
         SoapSerializationEnvelope envelope = new SoapSerializationEnvelope(SoapEnvelope.VER11);
 
         envelope.dotNet = true;
@@ -31,7 +31,6 @@ public class WebService {
         try {
             httpTransport.call(SOAP_ACTION, envelope);
             result = (SoapPrimitive) envelope.getResponse();
-            sonuc = result.toString();
 
         } catch (Exception e) {
             e.toString();
