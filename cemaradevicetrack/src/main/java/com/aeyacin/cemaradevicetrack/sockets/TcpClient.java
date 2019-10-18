@@ -22,8 +22,8 @@ import java.net.Socket;
 public class TcpClient {
 
     public static final String TAG = TcpClient.class.getSimpleName();
-    public static final String SERVER_IP = "178.18.200.117"; //server IP address 178.18.200.114
-    public static final int SERVER_PORT = 8086;
+    public static final String SERVER_IP = "178.18.200.114"; //server IP address 178.18.200.114
+    public static final int SERVER_PORT = 86;
     // message to send to the server
     private String mServerMessage;
     // sends message received notifications

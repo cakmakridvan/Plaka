@@ -27,6 +27,14 @@ android {
         }
     }
 
+    packagingOptions {
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.txt'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/LICENSE.txt'
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -54,6 +62,8 @@ dependencies {
 
     implementation files('C:/Users/RotaMobile/Desktop/Plaka/libs/ImeSdk.jar')
     implementation files('C:/Users/RotaMobile/Desktop/Plaka/libs/ftp4j-1.7.2.jar')
+    implementation files('C:/Users/RotaMobile/Desktop/Plaka/libs/poi-3.12-android-a.jar')
+    implementation files('C:/Users/RotaMobile/Desktop/Plaka/libs/poi-ooxml-schemas-3.12-20150511-a.jar')
 
     implementation 'com.writingminds:FFmpegAndroid:0.3.2'
     implementation 'com.android.support:multidex:1.0.0'

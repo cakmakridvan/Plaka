@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.AssetManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -52,6 +53,13 @@ import com.github.hiteshsondhi88.libffmpeg.exceptions.FFmpegNotSupportedExceptio
 import com.google.android.gms.location.DetectedActivity;
 import com.google.android.gms.location.Geofence;
 
+import org.apache.poi.hssf.usermodel.HSSFCell;
+import org.apache.poi.hssf.usermodel.HSSFRow;
+import org.apache.poi.hssf.usermodel.HSSFSheet;
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.poifs.filesystem.POIFSFileSystem;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.json.JSONException;
@@ -62,12 +70,14 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 
 import fr.quentinklein.slt.LocationTracker;
@@ -169,14 +179,19 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     String get_mesaj= "";
 
     SimpleDateFormat format;
-    private Date date_last,date_first;
-    String getFirstTime = "";
-    private int count = 0;
+    private Date date_last,date_first,date_last_image;
+    String getFirstTime = "" , getFirstTime_image = "";
+    private int count = 0, count_image = 0,count_speed = 0;
     ToneGenerator toneG;
-    private Handler handler_start;
+    private Handler handler_start,handler_start_image;
     private boolean success_cameraShake;
     private cameraShake cameraSendMessage = null;
-    private String currentDateandTime = "";
+    private String currentDateandTime = "",currentDateTimeImage = "";
+    private String type = "";
+    private AssetManager assetManager;
+    private List<Double> speed,hizlanma_hiz;
+    private int speedSize = 0,hizlanmaSize = 0;
+    private double first_speed = 0.0, second_speed = 0.0;
 
     private Handler mHandler = new Handler() {
 
@@ -215,6 +230,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         //Client = new UDP_Client();
         realm = Realm.getDefaultInstance();
 
+        assetManager = getAssets();
+
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         sensorManager.registerListener(this, sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_NORMAL);
         sensorManager.registerListener(this, sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION), SensorManager.SENSOR_DELAY_NORMAL);
@@ -227,8 +244,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         format = new SimpleDateFormat("hh:mm:ss aa");
         date_first = Calendar.getInstance().getTime();
         getFirstTime = format.format(date_first);
+        getFirstTime_image = format.format(date_first);
 
         handler_start = new Handler();
+        handler_start_image = new Handler();
 
         toneG = new ToneGenerator(AudioManager.STREAM_ALARM, 100);
 
@@ -255,6 +274,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         first_x = last_x;
         first_y = last_y;
         first_z = last_z;
+
+        speed = new ArrayList<>();
+        hizlanma_hiz = new ArrayList<>();
+
+        readExcelFileFromAssets();
+
 
     }
 
@@ -538,10 +563,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             byte[] outpt = new byte[data.length];
             //output = new byte[data.length];
 
-
             byte[] datam = NV21toYuv420.NV21toYUV420Planar(data, outpt, 1280, 720);
-
             encode(datam);
+
+/*            if(type.equals("image")){
+                currentDateTimeImage = DateTime.getDate();
+                NV21toYuv420.NV21toImage(data,1280,720,currentDateTimeImage);
+            }else{
+                byte[] datam = NV21toYuv420.NV21toYUV420Planar(data, outpt, 1280, 720);
+                encode(datam);
+            }*/
         }
     };
 
@@ -582,7 +613,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
                     } else {
-                        fos.write(outData, 0, outData.length);
+                            fos.write(outData, 0, outData.length);
                         //new ClientAsycTask().execute(data);
                     }
                     fos.flush();
@@ -690,6 +721,52 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     }
 
+    private void startPreviewImage() throws IOException {
+
+        mHandler.removeMessages(RESTART_PREVIEW_SUCCESS);
+
+        //判断预览数据管理器是否初始化化完成
+        if(mImePreviewDataManager.checkPreviewDataManagerInitSuccess()) {
+
+            //设置摄像头ID
+            mImePreviewDataManager.initCamId(ImePreviewDataManager.MAIN_CAM_ID);
+
+            //设置预览尺寸
+            mImePreviewDataManager.setPreviewSize(new ImePreviewDataManager.PreviewSize(1280, 720));
+
+            //获取实际预览尺寸，预览尺寸有可能设置失败
+            realPreviewSize = mImePreviewDataManager.getPreviewSize();
+
+            Log.i(TAG, "realPreviewSize : " + realPreviewSize.getWidth() + ", " + realPreviewSize.getHeight());
+
+            //设置数据回调接口
+            mImePreviewDataManager.setPreviewDataCallback(callBack);
+            //开始预览，在预览之后就会有相应的数据通过callBack回调出来
+            mImePreviewDataManager.startPreview();
+
+            handler_start_image.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    //Do something after 1 second
+                    //Stop Preview
+                    stopPreviewImage();
+
+                }
+            }, 1000);
+
+
+            Log.i(TAG, "startPreview success");
+
+            //stateTv.setText("startPreview success");
+
+        } else {
+            mHandler.sendEmptyMessageDelayed(RESTART_PREVIEW_SUCCESS, 2 * 1000);
+            Log.i(TAG, "wait startPreview success...");
+            //stateTv.setText("wait startPreview success...");
+        }
+
+    }
+
     private void stopPreview() {
 
         mHandler.removeMessages(RESTOP_PREVIEW_SUCCESS);
@@ -712,6 +789,26 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 isAudioRecording = false;
             }
 
+
+        } else {
+            mHandler.sendEmptyMessageDelayed(RESTOP_PREVIEW_SUCCESS, 2 * 1000);
+            Log.i(TAG, "wait stopPreview success...");
+            //stateTv.setText("wait stopPreview success...");
+        }
+    }
+
+    private void stopPreviewImage() {
+
+        mHandler.removeMessages(RESTOP_PREVIEW_SUCCESS);
+
+        //判断预览数据管理器是否初始化化完成
+        if(mImePreviewDataManager.checkPreviewDataManagerInitSuccess()) {
+
+            //停止预览
+            mImePreviewDataManager.stopPreview();
+
+            Log.i(TAG, "stopPreview success");
+            //stateTv.setText("stopPreview success");
 
         } else {
             mHandler.sendEmptyMessageDelayed(RESTOP_PREVIEW_SUCCESS, 2 * 1000);
@@ -812,7 +909,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             String get_y = String.valueOf(y-last_y);
             String get_z = String.valueOf(z-last_z);
 
-            //new ConnectTask().execute("");
+            new ConnectTask().execute("");
 /*
             try {
                 new ConnectTask().execute("").get(1000,TimeUnit.MILLISECONDS);
@@ -944,6 +1041,19 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 float ort_speed=(GlobalLocation.getSpeed()+son_speed)/2;
 
 
+              //sends the message to the server
+                if (mTcpClient != null) {
+
+                    try {
+                        //mTcpClient.sendMessage(get_x + "," + get_y + "," + get_z);
+                        mTcpClient.sendMessage(""+GlobalLocation.getLatitude() + GlobalLocation.getLongitude() + GlobalLocation.getBearing() + (GlobalLocation.getSpeed() * 3.6) + (bear * ort_speed )+ (GlobalLocation.getSpeed() - son_speed) + Alarm);
+                    } catch (Exception e) {
+
+                        Log.e("error_TCP_connection", "" + e);
+
+                    }
+                }
+
 
             if (last_z != 0) {
                 if (Hesap0yz > 4) {
@@ -951,12 +1061,73 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     toneG.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 200);
                     activityText.setText(String.format("x : %.4f y : %.4f z : %.4f yz0 : %.4f xyz0 : %.4f yz : %.4f xyz : %.4f ", x - last_x, y - last_y, z - last_z, Hesap0yz, Hesap0,Hesapyz,Hesapxyz));
                     saveToFile(new Date() + String.format("x : %.4f y : %.4f z : %.4f x0 : %.4f y0 : %.4f z0 : %.4f  yz0 : %.4f xyz0 : %.4f  yz : %.4f xyz : %.4f Latitude: %.6f Longitude: %.6f Bearing: %.1f Speed: %.1f LAT_ACC: %.4f LIN_ACC: %.4f Alarm : %.1f", x  , y  , z  ,x - last_x, y - last_y, z - last_z, Hesap0yz, Hesap0,Hesapyz,Hesapxyz, GlobalLocation.getLatitude(), GlobalLocation.getLongitude(), GlobalLocation.getBearing(), GlobalLocation.getSpeed() * 3.6, bear * ort_speed, GlobalLocation.getSpeed() - son_speed, Alarm));
+/*                    type = "image";
 
+                    //getting Current Date and Time
+                    date_last_image = Calendar.getInstance().getTime();
+                    String getLastTime_image = format.format(date_last_image);
+
+                    try {
+                        Date dateFirst_image = format.parse(getFirstTime_image);
+                        Date dateLast_image = format.parse(getLastTime_image);
+
+                        long millse_image = dateLast_image.getTime() - dateFirst_image.getTime();
+                        long mills_image = Math.abs(millse_image);
+                        double getSecond_image = mills_image / 1000;
+                        //long Secs = (int) (mills / 1000) % 60;
+                        Log.i("Min_image",""+getSecond_image);
+
+                        if(count_image == 0){
+                            startPreviewImage();
+                            type = "image";
+                            getFirstTime_image = getLastTime_image;
+                            count_image++;
+                        }else if(count_image != 0 && getSecond_image > 30){
+                            startPreviewImage();
+                            type = "image";
+                            getFirstTime_image = getLastTime_image;
+                            count_image++;
+                        }
+
+                    } catch (ParseException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }*/
                 }else if((Math.abs(x-last_x)>4)){
                     Alarm = 2;
                     toneG.startTone(ToneGenerator.TONE_CDMA_HIGH_PBX_SLS, 200);
                     activityText.setText(String.format("x : %.4f y : %.4f z : %.4f yz0 : %.4f xyz0 : %.4f yz : %.4f xyz : %.4f ", x - last_x, y - last_y, z - last_z, Hesap0yz, Hesap0,Hesapyz,Hesapxyz));
                     saveToFile(new Date() + String.format("x : %.4f y : %.4f z : %.4f x0 : %.4f y0 : %.4f z0 : %.4f  yz0 : %.4f xyz0 : %.4f  yz : %.4f xyz : %.4f Latitude: %.6f Longitude: %.6f Bearing: %.1f Speed: %.1f LAT_ACC: %.4f LIN_ACC: %.4f Alarm : %.1f", x  , y  , z  ,x - last_x, y - last_y, z - last_z, Hesap0yz, Hesap0,Hesapyz,Hesapxyz, GlobalLocation.getLatitude(), GlobalLocation.getLongitude(), GlobalLocation.getBearing(), GlobalLocation.getSpeed() * 3.6, bear * ort_speed, GlobalLocation.getSpeed() - son_speed, Alarm));
+
+                    if(count_speed == 0) {
+                        first_speed = GlobalLocation.getSpeed() * 3.6;
+                        count_speed++;
+                    }else if(count_speed != 0){
+                        second_speed = GlobalLocation.getSpeed() * 3.6;
+                        for(int i = 0; i<speedSize; i++){
+                            if(first_speed == speed.get(i)){
+                              if(second_speed == hizlanma_hiz.get(i)){
+                                  count_speed = 0;
+                                  //send Data via TCP to Server
+                                  //sends the message to the server
+                                  if (mTcpClient != null) {
+
+                                      try {
+                                          //mTcpClient.sendMessage(get_x + "," + get_y + "," + get_z);
+                                          mTcpClient.sendMessage(""+GlobalLocation.getLatitude() + GlobalLocation.getLongitude() + GlobalLocation.getBearing() + (GlobalLocation.getSpeed() * 3.6) + (bear * ort_speed )+ (GlobalLocation.getSpeed() - son_speed) + Alarm);
+                                      } catch (Exception e) {
+
+                                          Log.e("error_TCP_connection", "" + e);
+
+                                      }
+                                  }
+                              }
+                            }
+                        }
+                    }
+
+
 
                     //getting Current Date and Time
                     date_last = Calendar.getInstance().getTime();
@@ -974,10 +1145,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
                         if(count == 0){
                             startPreview();
+                            type = "video";
                             getFirstTime = getLastTime;
                             count++;
                         }else if(count != 0 && getSecond > 120){
                             startPreview();
+                            type = "video";
                             getFirstTime = getLastTime;
                             count++;
                         }
@@ -1583,6 +1756,62 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             super.onCancelled();
             currentDateandTime = null;
         }
+    }
+
+    public void readExcelFileFromAssets() {
+
+        try {
+            // Creating Input Stream
+            /*
+             * File file = new File( filename); FileInputStream myInput = new
+             * FileInputStream(file);
+             */
+
+            InputStream myInput;
+
+            //  Don't forget to Change to your assets folder excel sheet
+            myInput = assetManager.open("KameraliCihazKosullarV1.xls");
+
+            // Create a POIFSFileSystem object
+            POIFSFileSystem myFileSystem = new POIFSFileSystem(myInput);
+
+            // Create a workbook using the File System
+            HSSFWorkbook myWorkBook = new HSSFWorkbook(myFileSystem);
+
+            // Get the first sheet from workbook
+            HSSFSheet mySheet = myWorkBook.getSheetAt(0);
+
+            /** We now need something to iterate through the cells. **/
+            Iterator<Row> rowIter = mySheet.rowIterator();
+
+            while (rowIter.hasNext()) {
+                HSSFRow myRow = (HSSFRow) rowIter.next();
+                Iterator<Cell> cellIter = myRow.cellIterator();
+                while (cellIter.hasNext()) {
+                    HSSFCell myCell = (HSSFCell) cellIter.next();
+                    Log.e("FileUtils", "Cell Value: " + myCell.toString()+ " Index :" +myCell.getColumnIndex());
+                    // Toast.makeText(getApplicationContext(), "cell Value: " +
+                    // myCell.toString(), Toast.LENGTH_SHORT).show();
+
+                    if(myCell.getColumnIndex() == 0) {
+                        speed.add(Double.valueOf(myCell.toString()));
+                        Log.e("speed:", ""+myCell.toString());
+                    }if(myCell.getColumnIndex() == 1) {
+                        hizlanma_hiz.add(Double.valueOf(myCell.toString()));
+                        Log.e("hizlanmaHız:", ""+myCell.toString());
+                    }
+                }
+            }
+
+            Log.e("speed_Size", ""+speed.size());
+            speedSize = speed.size();
+            Log.e("HızlannmaHız_Size", ""+hizlanma_hiz.size());
+            hizlanmaSize = hizlanma_hiz.size();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return;
     }
 
 }
