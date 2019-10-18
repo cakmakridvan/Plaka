@@ -239,7 +239,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
+//
 
         format = new SimpleDateFormat("hh:mm:ss aa");
         date_first = Calendar.getInstance().getTime();
